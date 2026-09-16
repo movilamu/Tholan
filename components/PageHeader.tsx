@@ -1,0 +1,1 @@
+export function PageHeader({title,subtitle}:{title:string;subtitle:string}){return <header className="mb-7"><h1 className="text-3xl md:text-4xl font-black tracking-tight" style={{color:'var(--text)'}}>{title}</h1><p className="mt-2 max-w-3xl" style={{color:'var(--muted)'}}>{subtitle}</p></header>}

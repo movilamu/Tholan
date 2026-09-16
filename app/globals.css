@@ -1,0 +1,24 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg:#ffffff; --surface:#EAF6F3; --surface-strong:#DDF1EC; --text:#1E293B; --muted:#64748B; --border:#B8DDD4;
+  --brand:#0F766E; --brand-strong:#115E59; --danger:#DC2626; --warning:#D97706; --success:#16A34A; --indigo:#4338CA; --violet:#7C3AED; --navy:#1E293B;
+}
+:root[data-theme='high_contrast'] { --bg:#fff; --surface:#f8fffd; --surface-strong:#eefcf8; --text:#050b12; --muted:#334155; --border:#4f8f84; --brand:#075e57; --brand-strong:#034d48; }
+:root[data-theme='dark'] { --bg:#0F172A; --surface:#1E293B; --surface-strong:#26364a; --text:#E2E8F0; --muted:#94A3B8; --border:#426b66; --brand:#44B6AA; --brand-strong:#78d8cc; --danger:#fb6b6b; --warning:#f3b85a; --success:#5fd28b; --indigo:#94a3ff; --violet:#c4a2ff; --navy:#cbd5e1; }
+html { background:var(--bg); }
+body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font-family:Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+* { box-sizing:border-box; }
+button,input,select,textarea { font:inherit; }
+:root[data-theme='high_contrast'] body { font-size:17px; }
+.app-surface { background:var(--surface); border:1px solid var(--border); }
+.app-border { border-color:var(--border); }
+.page-enter { animation: pageEnter .2s ease-out both; }
+@keyframes pageEnter { from { opacity:0; transform:translateY(6px)} to {opacity:1; transform:translateY(0)} }
+.shimmer { background:linear-gradient(90deg, rgba(255,255,255,.08) 25%, rgba(255,255,255,.22) 50%, rgba(255,255,255,.08) 75%); background-size:200% 100%; animation:shimmer 1.4s infinite; }
+@keyframes shimmer { to { background-position:-200% 0; } }
+.leaflet-container { width:100%; height:100%; border-radius:16px; }
+.sos-ring { background:conic-gradient(var(--danger) var(--progress,0deg), rgba(255,255,255,.24) 0); }
+::-webkit-scrollbar { width:10px; height:10px; } ::-webkit-scrollbar-thumb { background:var(--border); border-radius:999px; }

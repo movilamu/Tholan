@@ -1,0 +1,7 @@
+project_id = "tholan"
+[api]
+enabled = true
+[db]
+port = 54322
+[studio]
+enabled = true

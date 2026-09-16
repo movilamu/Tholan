@@ -1,9 +1,288 @@
 'use client';
-import { FormEvent, useEffect, useState } from 'react';
+
+import { FormEvent, Suspense, useEffect, useState } from 'react';
 import { HeartPulse, LockKeyhole, Mail } from 'lucide-react';
 import { createSupabaseBrowser } from '../../lib/supabase-browser';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { toast } from 'sonner';
 import { FloatingSOS } from '../../components/FloatingSOS';
-export default function LoginPage(){const router=useRouter();const searchParams=useSearchParams();const {session,loading}=useAuth();const [mode,setMode]=useState<'signin'|'signup'>('signin');const [email,setEmail]=useState('');const [password,setPassword]=useState('');const [busy,setBusy]=useState(false);useEffect(()=>{if(!loading&&session)router.replace('/')},[loading,session,router]);useEffect(()=>{const error=searchParams.get('error');if(error)toast.error(decodeURIComponent(error));},[searchParams]);const submit=async(e:FormEvent)=>{e.preventDefault();setBusy(true);const s=createSupabaseBrowser();const res=mode==='signin'?await s.auth.signInWithPassword({email,password}):await s.auth.signUp({email,password,options:{data:{full_name:email.split('@')[0]}}});setBusy(false);if(res.error){toast.error(res.error.message);return;}if(mode==='signup'&&!res.data.session)toast.success('Check your email to confirm your account.');else router.replace('/signup-essentials');};const google=async()=>{setBusy(true);const s=createSupabaseBrowser();const callbackUrl=new URL('/auth/callback',window.location.origin);callbackUrl.searchParams.set('next','/');const {error}=await s.auth.signInWithOAuth({provider:'google',options:{redirectTo:callbackUrl.toString()}});if(error){setBusy(false);toast.error(error.message)}};return <div className="min-h-screen flex items-center justify-center p-5" style={{background:'var(--bg)'}}><FloatingSOS/><div className="w-full max-w-md app-surface rounded-3xl p-7 md:p-9 shadow-xl"><div className="flex items-center gap-3"><div className="h-12 w-12 rounded-2xl flex items-center justify-center text-white" style={{background:'var(--brand)'}}><HeartPulse/></div><div><div className="font-black text-2xl">Tholan</div><div className="text-sm" style={{color:'var(--muted)'}}>Health & emergency response</div></div></div><div className="mt-8"><h1 className="text-3xl font-black">{mode==='signin'?'Welcome back':'Create your account'}</h1><p className="mt-2" style={{color:'var(--muted)'}}>Secure access to your personal health records.</p></div><form onSubmit={submit} className="mt-7 space-y-4"><label className="block"><span className="text-sm font-bold">Email</span><div className="mt-1 relative"><Mail className="absolute left-3 top-3.5" size={18}/><input required type="email" value={email} onChange={e=>setEmail(e.target.value)} className="w-full rounded-xl border py-3 pl-10 pr-3 outline-none" style={{borderColor:'var(--border)',background:'var(--bg)',color:'var(--text)'}}/></div></label><label className="block"><span className="text-sm font-bold">Password</span><div className="mt-1 relative"><LockKeyhole className="absolute left-3 top-3.5" size={18}/><input required minLength={6} type="password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-xl border py-3 pl-10 pr-3 outline-none" style={{borderColor:'var(--border)',background:'var(--bg)',color:'var(--text)'}}/></div></label><button disabled={busy} className="w-full rounded-xl py-3.5 font-black text-white disabled:opacity-60" style={{background:'var(--brand)'}}>{busy?'Working…':mode==='signin'?'Sign in':'Create account'}</button></form><div className="flex items-center gap-3 my-6"><div className="h-px flex-1" style={{background:'var(--border)'}}/><span className="text-xs font-bold" style={{color:'var(--muted)'}}>OR</span><div className="h-px flex-1" style={{background:'var(--border)'}}/></div><button disabled={busy} onClick={google} className="w-full rounded-xl py-3.5 font-bold border disabled:opacity-60" style={{borderColor:'var(--border)'}}>Continue with Google</button><button onClick={()=>setMode(mode==='signin'?'signup':'signin')} className="w-full mt-4 text-sm font-bold" style={{color:'var(--brand)'}}>{mode==='signin'?'Need an account? Create one':'Already have an account? Sign in'}</button></div></div>}
+
+function LoginContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const { session, loading } = useAuth();
+
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!loading && session) {
+      router.replace('/');
+    }
+  }, [loading, session, router]);
+
+  useEffect(() => {
+    const error = searchParams.get('error');
+
+    if (error) {
+      toast.error(decodeURIComponent(error));
+    }
+  }, [searchParams]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+
+    setBusy(true);
+
+    const s = createSupabaseBrowser();
+
+    const res =
+      mode === 'signin'
+        ? await s.auth.signInWithPassword({
+            email,
+            password,
+          })
+        : await s.auth.signUp({
+            email,
+            password,
+            options: {
+              data: {
+                full_name: email.split('@')[0],
+              },
+            },
+          });
+
+    setBusy(false);
+
+    if (res.error) {
+      toast.error(res.error.message);
+      return;
+    }
+
+    if (mode === 'signup' && !res.data.session) {
+      toast.success(
+        'Check your email to confirm your account.'
+      );
+    } else {
+      router.replace('/signup-essentials');
+    }
+  };
+
+  const google = async () => {
+    setBusy(true);
+
+    const s = createSupabaseBrowser();
+
+    const callbackUrl = new URL(
+      '/auth/callback',
+      window.location.origin
+    );
+
+    callbackUrl.searchParams.set('next', '/');
+
+    const { error } =
+      await s.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: callbackUrl.toString(),
+        },
+      });
+
+    if (error) {
+      setBusy(false);
+      toast.error(error.message);
+    }
+  };
+
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center p-5"
+      style={{ background: 'var(--bg)' }}
+    >
+      <FloatingSOS />
+
+      <div className="w-full max-w-md app-surface rounded-3xl p-7 md:p-9 shadow-xl">
+        <div className="flex items-center gap-3">
+          <div
+            className="h-12 w-12 rounded-2xl flex items-center justify-center text-white"
+            style={{ background: 'var(--brand)' }}
+          >
+            <HeartPulse />
+          </div>
+
+          <div>
+            <div className="font-black text-2xl">
+              Tholan
+            </div>
+
+            <div
+              className="text-sm"
+              style={{ color: 'var(--muted)' }}
+            >
+              Health & emergency response
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-8">
+          <h1 className="text-3xl font-black">
+            {mode === 'signin'
+              ? 'Welcome back'
+              : 'Create your account'}
+          </h1>
+
+          <p
+            className="mt-2"
+            style={{ color: 'var(--muted)' }}
+          >
+            Secure access to your personal health records.
+          </p>
+        </div>
+
+        <form
+          onSubmit={submit}
+          className="mt-7 space-y-4"
+        >
+          <label className="block">
+            <span className="text-sm font-bold">
+              Email
+            </span>
+
+            <div className="mt-1 relative">
+              <Mail
+                className="absolute left-3 top-3.5"
+                size={18}
+              />
+
+              <input
+                required
+                type="email"
+                value={email}
+                onChange={(e) =>
+                  setEmail(e.target.value)
+                }
+                className="w-full rounded-xl border py-3 pl-10 pr-3 outline-none"
+                style={{
+                  borderColor: 'var(--border)',
+                  background: 'var(--bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </div>
+          </label>
+
+          <label className="block">
+            <span className="text-sm font-bold">
+              Password
+            </span>
+
+            <div className="mt-1 relative">
+              <LockKeyhole
+                className="absolute left-3 top-3.5"
+                size={18}
+              />
+
+              <input
+                required
+                minLength={6}
+                type="password"
+                value={password}
+                onChange={(e) =>
+                  setPassword(e.target.value)
+                }
+                className="w-full rounded-xl border py-3 pl-10 pr-3 outline-none"
+                style={{
+                  borderColor: 'var(--border)',
+                  background: 'var(--bg)',
+                  color: 'var(--text)',
+                }}
+              />
+            </div>
+          </label>
+
+          <button
+            disabled={busy}
+            className="w-full rounded-xl py-3.5 font-black text-white disabled:opacity-60"
+            style={{ background: 'var(--brand)' }}
+          >
+            {busy
+              ? 'Working…'
+              : mode === 'signin'
+                ? 'Sign in'
+                : 'Create account'}
+          </button>
+        </form>
+
+        <div className="flex items-center gap-3 my-6">
+          <div
+            className="h-px flex-1"
+            style={{ background: 'var(--border)' }}
+          />
+
+          <span
+            className="text-xs font-bold"
+            style={{ color: 'var(--muted)' }}
+          >
+            OR
+          </span>
+
+          <div
+            className="h-px flex-1"
+            style={{ background: 'var(--border)' }}
+          />
+        </div>
+
+        <button
+          disabled={busy}
+          onClick={google}
+          className="w-full rounded-xl py-3.5 font-bold border disabled:opacity-60"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          Continue with Google
+        </button>
+
+        <button
+          onClick={() =>
+            setMode(
+              mode === 'signin'
+                ? 'signup'
+                : 'signin'
+            )
+          }
+          className="w-full mt-4 text-sm font-bold"
+          style={{ color: 'var(--brand)' }}
+        >
+          {mode === 'signin'
+            ? 'Need an account? Create one'
+            : 'Already have an account? Sign in'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <div
+      className="min-h-screen flex items-center justify-center p-5"
+      style={{ background: 'var(--bg)' }}
+    >
+      <div className="app-surface rounded-3xl p-8 shadow-xl">
+        <div className="font-black">
+          Loading secure sign-in…
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginContent />
+    </Suspense>
+  );
+}

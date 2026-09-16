@@ -1,42 +1,65 @@
 import { NextResponse } from 'next/server';
-import { createSupabaseServer } from '../../../lib/supabase-server';
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
-  const code = url.searchParams.get('code');
-  const next = url.searchParams.get('next');
+  const requestUrl = new URL(request.url);
+  const code = requestUrl.searchParams.get('code');
+  const next = requestUrl.searchParams.get('next') ?? '/';
 
   if (!code) {
-    return NextResponse.redirect(new URL('/login?error=missing_oauth_code', url.origin));
+    return NextResponse.redirect(
+      new URL(
+        '/login?error=missing_oauth_code',
+        requestUrl.origin
+      )
+    );
   }
 
-  const supabase = createSupabaseServer();
-  const { error } = await supabase.auth.exchangeCodeForSession(code);
+  const cookieStore = await cookies();
+
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll();
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(
+              ({ name, value, options }) => {
+                cookieStore.set(name, value, options);
+              }
+            );
+          } catch {
+            // Cookies can be ignored when the response
+            // is already being generated in a context
+            // where mutation is unavailable.
+          }
+        },
+      },
+    }
+  );
+
+  const { error } =
+    await supabase.auth.exchangeCodeForSession(code);
 
   if (error) {
-    const message = encodeURIComponent(error.message);
-    return NextResponse.redirect(new URL(`/login?error=${message}`, url.origin));
+    return NextResponse.redirect(
+      new URL(
+        `/login?error=${encodeURIComponent(
+          error.message
+        )}`,
+        requestUrl.origin
+      )
+    );
   }
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const safeNext = next.startsWith('/') ? next : '/';
 
-  if (!user) {
-    return NextResponse.redirect(new URL('/login?error=session_not_created', url.origin));
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('onboarding_complete')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (profileError) {
-    const message = encodeURIComponent('Your account was signed in, but your profile could not be loaded.');
-    return NextResponse.redirect(new URL(`/login?error=${message}`, url.origin));
-  }
-
-  const destination = next === '/emergency' ? '/emergency' : profile?.onboarding_complete ? '/' : '/signup-essentials';
-  return NextResponse.redirect(new URL(destination, url.origin));
+  return NextResponse.redirect(
+    new URL(safeNext, requestUrl.origin)
+  );
 }

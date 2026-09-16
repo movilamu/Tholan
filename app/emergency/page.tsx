@@ -10,15 +10,11 @@ import {
   Navigation,
   ShieldAlert,
 } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import { AppShell } from '../../components/AppShell';
 import { PageHeader } from '../../components/PageHeader';
 import { useAuth } from '../../lib/auth-context';
 import { createSupabaseBrowser } from '../../lib/supabase-browser';
-import dynamic from 'next/dynamic';
-const LeafletMap = dynamic(
-  () => import('../../components/LeafletMap').then((m) => m.LeafletMap),
-  { ssr: false }
-);
 import type {
   Condition,
   Medication,
@@ -28,7 +24,21 @@ import type {
 import { t } from '../../lib/i18n';
 import { toast } from 'sonner';
 
-const severities = ['Low', 'Moderate', 'High', 'Critical'] as const;
+const LeafletMap = dynamic(
+  () =>
+    import('../../components/LeafletMap').then(
+      (m) => m.LeafletMap
+    ),
+  { ssr: false }
+);
+
+const severities = [
+  'Low',
+  'Moderate',
+  'High',
+  'Critical',
+] as const;
+
 type Severity = (typeof severities)[number];
 
 type FirstAidGuide = Record<string, string[]>;
@@ -40,11 +50,13 @@ const aids: Record<'en' | 'ta', FirstAidGuide> = {
       'If awake and able to swallow, consider normal fluids while arranging medical assessment.',
       'Seek urgent care for fainting, chest pain, severe breathlessness, confusion, weakness on one side, or ongoing symptoms.',
     ],
+
     'Heat stroke': [
       'Move to a cool place and remove excess clothing.',
       'Cool the person promptly with cool wet cloths/fanning or other available cooling measures.',
       'Heat stroke is an emergency: call for urgent medical help, especially with confusion, collapse, or seizures.',
     ],
+
     'Snake bite': [
       'Keep the person calm and still; immobilize the affected limb if possible.',
       'Seek urgent medical care immediately and avoid cutting, sucking, or applying a tourniquet to the bite.',
@@ -58,11 +70,13 @@ const aids: Record<'en' | 'ta', FirstAidGuide> = {
       'விழிப்புடன் விழுங்க முடிந்தால், மருத்துவ உதவி ஏற்பாடு செய்யும் போது சாதாரண திரவங்களை பரிசீலிக்கலாம்.',
       'மயக்கம், மார்பு வலி, கடுமையான மூச்சுத்திணறல், குழப்பம் அல்லது நீடிக்கும் அறிகுறிகள் இருந்தால் அவசர உதவி பெறுங்கள்.',
     ],
+
     'வெப்ப அதிர்ச்சி': [
       'குளிர்ந்த இடத்துக்கு மாற்றி, அதிகமான ஆடைகளை அகற்றுங்கள்.',
       'குளிர்ந்த ஈரத் துணி/விசிறி போன்றவற்றால் உடலை விரைவாக குளிர்விக்கவும்.',
       'குழப்பம், சரிவு அல்லது fits இருந்தால் உடனடி மருத்துவ உதவி தேவை.',
     ],
+
     'பாம்பு கடி': [
       'அமைதியாக வைத்துக் கொண்டு, பாதிக்கப்பட்ட உறுப்பை முடிந்தால் அசையாமல் வைத்திருங்கள்.',
       'உடனடி மருத்துவமனை உதவியை நாடுங்கள்; காயத்தை வெட்டவோ, உறிஞ்சவோ, tourniquet போடவோ வேண்டாம்.',
@@ -71,17 +85,90 @@ const aids: Record<'en' | 'ta', FirstAidGuide> = {
   },
 };
 
+type HospitalResult = {
+  display_name?: string;
+  lat?: string | number;
+  lon?: string | number;
+  importance?: number;
+  type?: string;
+  category?: string;
+  address?: Record<string, string>;
+};
+
+type SelectedHospital = {
+  name: string;
+  lat: number;
+  lon: number;
+  phone?: string;
+  distanceKm?: number;
+};
+
+const toRadians = (value: number) =>
+  (value * Math.PI) / 180;
+
+const distanceKm = (
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number
+) => {
+  const earthRadiusKm = 6371;
+
+  const dLat = toRadians(lat2 - lat1);
+  const dLon = toRadians(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRadians(lat1)) *
+      Math.cos(toRadians(lat2)) *
+      Math.sin(dLon / 2) ** 2;
+
+  return (
+    2 *
+    earthRadiusKm *
+    Math.asin(Math.sqrt(a))
+  );
+};
+
+function validHospitalResult(
+  item: HospitalResult
+): item is Required<
+  Pick<HospitalResult, 'lat' | 'lon'>
+> &
+  HospitalResult {
+  const lat = Number(item.lat);
+  const lon = Number(item.lon);
+
+  return (
+    Number.isFinite(lat) &&
+    Number.isFinite(lon) &&
+    lat >= -90 &&
+    lat <= 90 &&
+    lon >= -180 &&
+    lon <= 180
+  );
+}
+
 export default function EmergencyPage() {
   const { user, profile, lang } = useAuth();
 
-  const [severity, setSeverity] = useState<Severity>('High');
+  const [severity, setSeverity] =
+    useState<Severity>('High');
+
   const [count, setCount] = useState(10);
   const [running, setRunning] = useState(false);
-  const [executed, setExecuted] = useState(false);
-  const [coords, setCoords] = useState<[number, number] | null>(null);
+  const [executed, setExecuted] =
+    useState(false);
+
+  const [coords, setCoords] =
+    useState<[number, number] | null>(null);
+
   const [hospital, setHospital] =
-    useState<{ name: string; lat: number; lon: number; phone?: string }>();
-  const [route, setRoute] = useState<[number, number][]>([]);
+    useState<SelectedHospital>();
+
+  const [route, setRoute] = useState<
+    [number, number][]
+  >([]);
 
   const [records, setRecords] = useState<{
     conditions: Condition[];
@@ -93,55 +180,94 @@ export default function EmergencyPage() {
     medications: [],
   });
 
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [generic, setGeneric] = useState(false);
-  const [placeName, setPlaceName] = useState('');
+  const [lookupLoading, setLookupLoading] =
+    useState(false);
+
+  const [generic, setGeneric] =
+    useState(false);
+
+  const [placeName, setPlaceName] =
+    useState('');
 
   useEffect(() => {
-    const p = new URLSearchParams(window.location.search);
-    setGeneric(p.get('generic') === '1');
+    const params = new URLSearchParams(
+      window.location.search
+    );
+
+    setGeneric(
+      params.get('generic') === '1'
+    );
   }, []);
 
   useEffect(() => {
-    if (!user || !profile?.onboarding_complete) return;
+    if (
+      !user ||
+      !profile?.onboarding_complete
+    ) {
+      return;
+    }
 
-    const s = createSupabaseBrowser();
+    const supabase =
+      createSupabaseBrowser();
 
     Promise.all([
-      s
+      supabase
         .from('conditions')
         .select('*')
-        .order('created_at', { ascending: false }),
+        .order('created_at', {
+          ascending: false,
+        }),
 
-      s
+      supabase
         .from('medications')
         .select('*')
-        .order('created_at', { ascending: false }),
+        .order('created_at', {
+          ascending: false,
+        }),
 
-      s
+      supabase
         .from('hospitals')
         .select('*')
         .eq('is_primary', true)
         .limit(1),
 
-      s
+      supabase
         .from('emergency_contacts')
         .select('*')
-        .order('created_at', { ascending: true })
+        .order('created_at', {
+          ascending: true,
+        })
         .limit(1),
-    ]).then(([c, m, h, e]) => {
-      const er = c.error || m.error || h.error || e.error;
+    ]).then(([conditions, medications, hospitals, contacts]) => {
+      const error =
+        conditions.error ||
+        medications.error ||
+        hospitals.error ||
+        contacts.error;
 
-      if (er) {
-        toast.error('Emergency profile data could not be loaded.');
+      if (error) {
+        toast.error(
+          'Emergency profile data could not be loaded.'
+        );
         return;
       }
 
       setRecords({
-        conditions: (c.data || []) as Condition[],
-        medications: (m.data || []) as Medication[],
-        primary: (h.data || [])[0] as Hospital | undefined,
-        contact: (e.data || [])[0] as EmergencyContact | undefined,
+        conditions:
+          (conditions.data || []) as Condition[],
+
+        medications:
+          (medications.data || []) as Medication[],
+
+        primary:
+          (hospitals.data || [])[0] as
+            | Hospital
+            | undefined,
+
+        contact:
+          (contacts.data || [])[0] as
+            | EmergencyContact
+            | undefined,
       });
     });
   }, [user, profile]);
@@ -157,159 +283,404 @@ export default function EmergencyPage() {
   useEffect(() => {
     if (!running) return;
 
-    const id = window.setInterval(() => {
-      setCount((c) => {
-        if (c <= 1) {
-          window.clearInterval(id);
+    const timer = window.setInterval(() => {
+      setCount((current) => {
+        if (current <= 1) {
+          window.clearInterval(timer);
           setRunning(false);
           setExecuted(true);
           return 0;
         }
 
-        return c - 1;
+        return current - 1;
       });
     }, 1000);
 
-    return () => window.clearInterval(id);
+    return () => {
+      window.clearInterval(timer);
+    };
   }, [running]);
 
   useEffect(() => {
     if (!executed) return;
 
     if (!navigator.geolocation) {
-      toast.error('This browser does not expose geolocation.');
+      toast.error(
+        'This browser does not expose geolocation.'
+      );
       return;
     }
 
+    let cancelled = false;
+
     setLookupLoading(true);
+    setHospital(undefined);
+    setRoute([]);
 
     navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const u: [number, number] = [
-          pos.coords.latitude,
-          pos.coords.longitude,
-        ];
+      async (position) => {
+        if (cancelled) return;
 
-        setCoords(u);
+        const latitude =
+          position.coords.latitude;
+
+        const longitude =
+          position.coords.longitude;
+
+        const currentCoords: [
+          number,
+          number
+        ] = [latitude, longitude];
+
+        setCoords(currentCoords);
 
         try {
           const useNearest =
-            generic || severity === 'High' || severity === 'Critical';
+            generic ||
+            severity === 'High' ||
+            severity === 'Critical';
 
-          let results: any[] = [];
+          let results: HospitalResult[] = [];
 
-          if (useNearest) {
-            const reverse = await fetch(
-              `/api/location/reverse?lat=${u[0]}&lon=${u[1]}`
-            );
+          /*
+           * Reverse geocode the user's current position.
+           * This is for human-readable location display.
+           */
+          const reverseResponse = await fetch(
+            `/api/location/reverse?lat=${latitude}&lon=${longitude}`,
+            {
+              cache: 'no-store',
+            }
+          );
 
-            if (reverse.ok) {
-              const rv = await reverse.json();
+          if (reverseResponse.ok) {
+            const reverseJson =
+              await reverseResponse.json();
 
+            if (!cancelled) {
               setPlaceName(
-                rv?.display_name ||
-                  rv?.name ||
+                reverseJson?.display_name ||
+                  reverseJson?.name ||
                   'Current device location'
               );
             }
+          }
 
-            await new Promise((r) => setTimeout(r, 1100));
-
-            const r = await fetch(
-              `/api/nominatim?q=hospital&lat=${u[0]}&lon=${u[1]}`
+          if (useNearest) {
+            /*
+             * Respect Nominatim's public-service
+             * request-rate policy by spacing external
+             * calls.
+             */
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1100)
             );
 
-            results = await r.json();
+            const searchUrl =
+              `/api/nominatim?q=${encodeURIComponent(
+                '[hospital]'
+              )}&lat=${latitude}&lon=${longitude}`;
+
+            const hospitalResponse =
+              await fetch(searchUrl, {
+                cache: 'no-store',
+              });
+
+            const hospitalJson =
+              await hospitalResponse
+                .json()
+                .catch(() => null);
+
+            if (!hospitalResponse.ok) {
+              throw new Error(
+                hospitalJson?.details ||
+                  hospitalJson?.error ||
+                  'Nearby hospital search failed.'
+              );
+            }
+
+            results = Array.isArray(hospitalJson)
+              ? (hospitalJson as HospitalResult[])
+              : [];
           } else if (records.primary) {
-            const r = await fetch(
-              `/api/nominatim?q=${encodeURIComponent(records.primary.name)}`
+            /*
+             * Search for the user's stored primary
+             * hospital using its real stored name.
+             */
+            await new Promise((resolve) =>
+              setTimeout(resolve, 1100)
             );
 
-            results = await r.json();
+            const primaryQuery =
+              `${records.primary.name}, India`;
+
+            const primaryResponse =
+              await fetch(
+                `/api/nominatim?q=${encodeURIComponent(
+                  primaryQuery
+                )}&lat=${latitude}&lon=${longitude}`,
+                {
+                  cache: 'no-store',
+                }
+              );
+
+            const primaryJson =
+              await primaryResponse
+                .json()
+                .catch(() => null);
+
+            if (!primaryResponse.ok) {
+              throw new Error(
+                primaryJson?.details ||
+                  primaryJson?.error ||
+                  'Preferred hospital lookup failed.'
+              );
+            }
+
+            results = Array.isArray(primaryJson)
+              ? (primaryJson as HospitalResult[])
+              : [];
+
+            /*
+             * If the name search finds nothing, retry
+             * without coordinate bounding. This still
+             * searches the real stored hospital name,
+             * rather than inventing a fallback hospital.
+             */
+            if (!results.length) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, 1100)
+              );
+
+              const fallbackResponse =
+                await fetch(
+                  `/api/nominatim?q=${encodeURIComponent(
+                    primaryQuery
+                  )}`,
+                  {
+                    cache: 'no-store',
+                  }
+                );
+
+              const fallbackJson =
+                await fallbackResponse
+                  .json()
+                  .catch(() => null);
+
+              if (!fallbackResponse.ok) {
+                throw new Error(
+                  fallbackJson?.details ||
+                    fallbackJson?.error ||
+                    'Preferred hospital lookup failed.'
+                );
+              }
+
+              results = Array.isArray(
+                fallbackJson
+              )
+                ? (fallbackJson as HospitalResult[])
+                : [];
+            }
           }
 
-          if (!Array.isArray(results) || !results.length) {
+          if (!results.length) {
             throw new Error(
-              'No hospital was found for this location.'
+              useNearest
+                ? 'No nearby hospital was found in OpenStreetMap for this location.'
+                : 'The preferred hospital could not be found in OpenStreetMap.'
             );
           }
 
-          const ranked = results
-            .map((x: any) => ({
-              ...x,
-              d2:
-                Math.pow(Number(x.lat) - u[0], 2) +
-                Math.pow(Number(x.lon) - u[1], 2),
+          const usableResults =
+            results.filter(validHospitalResult);
+
+          if (!usableResults.length) {
+            throw new Error(
+              'Hospital results did not contain usable coordinates.'
+            );
+          }
+
+          /*
+           * Always select the geographically closest
+           * valid result from the returned candidates.
+           */
+          const ranked = usableResults
+            .map((item) => ({
+              ...item,
+              distanceKm: distanceKm(
+                latitude,
+                longitude,
+                Number(item.lat),
+                Number(item.lon)
+              ),
             }))
-            .sort((a: any, b: any) => a.d2 - b.d2);
+            .sort(
+              (a, b) =>
+                a.distanceKm -
+                b.distanceKm
+            );
 
-          const h = ranked[0];
+          const selected = ranked[0];
 
-          const hs = {
-            name:
-              h.display_name?.split(',').slice(0, 2).join(',') ||
-              records.primary?.name ||
-              'Hospital',
-            lat: Number(h.lat),
-            lon: Number(h.lon),
-            phone: !useNearest
-              ? records.primary?.phone_number
-              : undefined,
-          };
+          if (cancelled) return;
 
-          setHospital(hs);
+          const selectedHospital: SelectedHospital =
+            {
+              name:
+                selected.display_name
+                  ?.split(',')
+                  .slice(0, 2)
+                  .join(',')
+                  .trim() ||
+                records.primary?.name ||
+                'Hospital',
 
-          await new Promise((r) => setTimeout(r, 1000));
+              lat: Number(selected.lat),
+              lon: Number(selected.lon),
 
-          const rr = await fetch(
-            `/api/osrm?from=${u[1]},${u[0]}&to=${hs.lon},${hs.lat}`
+              /*
+               * The stored primary hospital phone
+               * remains the only real hospital phone
+               * available for calling.
+               *
+               * Nominatim does not become a source of
+               * phone numbers here.
+               */
+              phone:
+                !useNearest
+                  ? records.primary
+                      ?.phone_number
+                  : undefined,
+
+              distanceKm:
+                selected.distanceKm,
+            };
+
+          setHospital(selectedHospital);
+
+          /*
+           * Wait before the OSRM request as well.
+           */
+          await new Promise((resolve) =>
+            setTimeout(resolve, 1100)
           );
 
-          const rj = await rr.json();
+          if (cancelled) return;
 
-          const line =
-            rj?.routes?.[0]?.geometry?.coordinates?.map(
-              (p: [number, number]) =>
-                [p[1], p[0]] as [number, number]
-            ) || [];
+          const routeResponse =
+            await fetch(
+              `/api/osrm?from=${longitude},${latitude}&to=${selectedHospital.lon},${selectedHospital.lat}`,
+              {
+                cache: 'no-store',
+              }
+            );
 
-          setRoute(line);
+          const routeJson =
+            await routeResponse
+              .json()
+              .catch(() => null);
 
-          if (!line.length) {
-            toast.info(
-              'Hospital found; route geometry is unavailable right now.'
+          if (!routeResponse.ok) {
+            throw new Error(
+              routeJson?.error ||
+                'Routing service failed.'
             );
           }
-        } catch (e) {
-          toast.error(
-            e instanceof Error
-              ? e.message
-              : 'Could not build the emergency route.'
-          );
+
+          const coordinates =
+            routeJson?.routes?.[0]?.geometry
+              ?.coordinates;
+
+          const line: [number, number][] =
+            Array.isArray(coordinates)
+              ? coordinates
+                  .filter(
+                    (point: unknown) =>
+                      Array.isArray(point) &&
+                      point.length >= 2 &&
+                      Number.isFinite(
+                        Number(point[0])
+                      ) &&
+                      Number.isFinite(
+                        Number(point[1])
+                      )
+                  )
+                  .map(
+                    (
+                      point: [
+                        number,
+                        number
+                      ]
+                    ) =>
+                      [
+                        Number(point[1]),
+                        Number(point[0]),
+                      ] as [
+                        number,
+                        number
+                      ]
+                  )
+              : [];
+
+          if (!cancelled) {
+            setRoute(line);
+
+            if (!line.length) {
+              toast.info(
+                'Hospital found, but route geometry is unavailable right now.'
+              );
+            }
+          }
+        } catch (error) {
+          if (!cancelled) {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : 'Could not build the emergency route.'
+            );
+          }
         } finally {
-          setLookupLoading(false);
+          if (!cancelled) {
+            setLookupLoading(false);
+          }
         }
       },
+
       () => {
+        if (cancelled) return;
+
         setLookupLoading(false);
+
         toast.error(
           'Location permission was not granted. You can still use the phone actions below.'
         );
       },
+
       {
         enableHighAccuracy: true,
         timeout: 10000,
         maximumAge: 30000,
       }
     );
-  }, [executed, generic, severity, records.primary]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    executed,
+    generic,
+    severity,
+    records.primary,
+  ]);
 
   const cancel = () => {
     setRunning(false);
     setCount(10);
 
     if (generic) {
-      toast.info('Generic emergency countdown cancelled.');
+      toast.info(
+        'Generic emergency countdown cancelled.'
+      );
     }
   };
 
@@ -320,6 +691,7 @@ export default function EmergencyPage() {
     setCoords(null);
     setHospital(undefined);
     setRoute([]);
+    setPlaceName('');
   };
 
   const currentAid: FirstAidGuide = generic
@@ -328,9 +700,10 @@ export default function EmergencyPage() {
       ? aids.ta
       : aids.en;
 
-  const smsText = `Tholan emergency alert: ${
-    profile?.name || 'I'
-  } may need help. Severity: ${severity}. Please check on me.`;
+  const smsText =
+    `Tholan emergency alert: ${
+      profile?.name || 'I'
+    } may need help. Severity: ${severity}. Please check on me.`;
 
   return (
     <AppShell>
@@ -350,7 +723,9 @@ export default function EmergencyPage() {
           <div>
             <div
               className="text-sm font-black uppercase tracking-wider"
-              style={{ color: 'var(--danger)' }}
+              style={{
+                color: 'var(--danger)',
+              }}
             >
               Emergency protocol
             </div>
@@ -361,28 +736,32 @@ export default function EmergencyPage() {
           </div>
 
           <div className="flex gap-2 flex-wrap">
-            {severities.map((s) => (
+            {severities.map((level) => (
               <button
-                key={s}
+                key={level}
                 disabled={running || generic}
-                onClick={() => setSeverity(s)}
+                onClick={() =>
+                  setSeverity(level)
+                }
                 className="rounded-full px-4 py-2 border font-black"
                 style={{
                   borderColor:
-                    severity === s
+                    severity === level
                       ? 'var(--danger)'
                       : 'var(--border)',
+
                   background:
-                    severity === s
+                    severity === level
                       ? 'color-mix(in srgb,var(--danger) 12%,var(--surface))'
                       : 'var(--surface)',
+
                   color:
-                    severity === s
+                    severity === level
                       ? 'var(--danger)'
                       : 'var(--text)',
                 }}
               >
-                {s}
+                {level}
               </button>
             ))}
           </div>
@@ -392,7 +771,9 @@ export default function EmergencyPage() {
           <div className="mt-7 text-center">
             <div
               className="text-7xl font-black"
-              style={{ color: 'var(--danger)' }}
+              style={{
+                color: 'var(--danger)',
+              }}
             >
               {count}
             </div>
@@ -404,7 +785,9 @@ export default function EmergencyPage() {
             <button
               onClick={cancel}
               className="mt-5 rounded-xl border px-6 py-3 font-black"
-              style={{ borderColor: 'var(--border)' }}
+              style={{
+                borderColor: 'var(--border)',
+              }}
             >
               Cancel emergency flow
             </button>
@@ -420,7 +803,11 @@ export default function EmergencyPage() {
             }}
           >
             <div className="flex items-start gap-3">
-              <ShieldAlert style={{ color: 'var(--danger)' }} />
+              <ShieldAlert
+                style={{
+                  color: 'var(--danger)',
+                }}
+              />
 
               <div>
                 <div className="font-bold">
@@ -429,10 +816,12 @@ export default function EmergencyPage() {
 
                 <p
                   className="text-sm mt-1"
-                  style={{ color: 'var(--muted)' }}
+                  style={{
+                    color: 'var(--muted)',
+                  }}
                 >
-                  No emergency escalation starts until the countdown
-                  reaches zero.
+                  No emergency escalation starts
+                  until the countdown reaches zero.
                 </p>
               </div>
             </div>
@@ -440,10 +829,16 @@ export default function EmergencyPage() {
             <button
               onClick={start}
               className="mt-5 w-full md:w-auto rounded-xl px-8 py-4 text-white font-black text-lg"
-              style={{ background: 'var(--danger)' }}
+              style={{
+                background: 'var(--danger)',
+              }}
             >
-              <Siren className="inline mr-2" size={21} /> Start
-              emergency protocol
+              <Siren
+                className="inline mr-2"
+                size={21}
+              />
+
+              Start emergency protocol
             </button>
           </div>
         )}
@@ -453,7 +848,9 @@ export default function EmergencyPage() {
             <div className="mt-7 grid lg:grid-cols-[1.05fr_.95fr] gap-6">
               <section
                 className="rounded-2xl overflow-hidden border min-h-[390px]"
-                style={{ borderColor: 'var(--border)' }}
+                style={{
+                  borderColor: 'var(--border)',
+                }}
               >
                 {coords ? (
                   <LeafletMap
@@ -466,7 +863,9 @@ export default function EmergencyPage() {
                     <div className="text-center p-6">
                       <MapPin
                         className="mx-auto"
-                        style={{ color: 'var(--danger)' }}
+                        style={{
+                          color: 'var(--danger)',
+                        }}
                       />
 
                       <div className="font-black mt-2">
@@ -477,9 +876,12 @@ export default function EmergencyPage() {
 
                       <div
                         className="text-sm mt-1"
-                        style={{ color: 'var(--muted)' }}
+                        style={{
+                          color: 'var(--muted)',
+                        }}
                       >
-                        Allow location access to populate the map.
+                        Allow location access to
+                        populate the map.
                       </div>
                     </div>
                   </div>
@@ -489,22 +891,43 @@ export default function EmergencyPage() {
               <section className="space-y-4">
                 <div
                   className="rounded-2xl p-4 border"
-                  style={{ borderColor: 'var(--border)' }}
+                  style={{
+                    borderColor: 'var(--border)',
+                  }}
                 >
                   <div className="font-black">
-                    {hospital?.name || 'Hospital search pending'}
+                    {hospital?.name ||
+                      'Hospital search pending'}
                   </div>
 
+                  {hospital?.distanceKm !==
+                    undefined && (
+                    <div
+                      className="text-xs mt-2"
+                      style={{
+                        color: 'var(--muted)',
+                      }}
+                    >
+                      Approx.{' '}
+                      {hospital.distanceKm.toFixed(
+                        1
+                      )}{' '}
+                      km away
+                    </div>
+                  )}
+
                   <div
-                    className="text-sm mt-1"
-                    style={{ color: 'var(--muted)' }}
+                    className="text-sm mt-2"
+                    style={{
+                      color: 'var(--muted)',
+                    }}
                   >
                     {generic
                       ? 'Generic protocol: nearest hospital search'
                       : severity === 'High' ||
                           severity === 'Critical'
                         ? 'High/Critical: nearest hospital lookup'
-                        : 'Low/Moderate: stored primary hospital'}
+                        : 'Low/Moderate: stored primary hospital lookup'}
                   </div>
                 </div>
 
@@ -512,12 +935,14 @@ export default function EmergencyPage() {
                   <a
                     href="tel:108"
                     className="rounded-xl px-4 py-3 text-white font-black text-center"
-                    style={{ background: 'var(--danger)' }}
+                    style={{
+                      background: 'var(--danger)',
+                    }}
                   >
                     <Phone
                       className="inline mr-2"
                       size={18}
-                    />{' '}
+                    />
                     {t(lang, 'callAmbulance')} · 108
                   </a>
 
@@ -525,13 +950,19 @@ export default function EmergencyPage() {
                     <a
                       href={`tel:${records.primary.phone_number}`}
                       className="rounded-xl px-4 py-3 border font-black text-center"
-                      style={{ borderColor: 'var(--border)' }}
+                      style={{
+                        borderColor:
+                          'var(--border)',
+                      }}
                     >
                       <Phone
                         className="inline mr-2"
                         size={18}
-                      />{' '}
-                      {t(lang, 'callHospital')}
+                      />
+                      {t(
+                        lang,
+                        'callHospital'
+                      )}
                     </a>
                   )}
 
@@ -539,14 +970,20 @@ export default function EmergencyPage() {
                     <a
                       href={`tel:${records.contact.phone_number}`}
                       className="rounded-xl px-4 py-3 border font-black text-center"
-                      style={{ borderColor: 'var(--border)' }}
+                      style={{
+                        borderColor:
+                          'var(--border)',
+                      }}
                     >
                       <Phone
                         className="inline mr-2"
                         size={18}
-                      />{' '}
-                      {t(lang, 'callContact')} ·{' '}
-                      {records.contact.name}
+                      />
+                      {t(
+                        lang,
+                        'callContact'
+                      )}{' '}
+                      · {records.contact.name}
                     </a>
                   )}
 
@@ -556,12 +993,15 @@ export default function EmergencyPage() {
                         smsText
                       )}`}
                       className="rounded-xl px-4 py-3 border font-black text-center"
-                      style={{ borderColor: 'var(--success)' }}
+                      style={{
+                        borderColor:
+                          'var(--success)',
+                      }}
                     >
                       <MessageSquare
                         className="inline mr-2"
                         size={18}
-                      />{' '}
+                      />
                       SMS emergency contact
                     </a>
                   )}
@@ -576,14 +1016,16 @@ export default function EmergencyPage() {
                 >
                   <div
                     className="font-black"
-                    style={{ color: 'var(--warning)' }}
+                    style={{
+                      color: 'var(--warning)',
+                    }}
                   >
                     📩 SIMULATED — NOT SENT
                   </div>
 
                   <p className="text-sm mt-2">
-                    Exactly what a hospital message would contain
-                    (display only):
+                    Exactly what a hospital message
+                    would contain (display only):
                   </p>
 
                   <pre className="mt-3 text-xs whitespace-pre-wrap font-sans">
@@ -594,18 +1036,23 @@ export default function EmergencyPage() {
                     Severity: {severity}
                     {'\n'}
                     Conditions:{' '}
-                    {records.conditions.map((x) => x.name).join(', ') ||
+                    {records.conditions
+                      .map((item) => item.name)
+                      .join(', ') ||
                       'None recorded'}
                     {'\n'}
                     Medications:{' '}
                     {records.medications
                       .map(
-                        (x) =>
-                          `${x.name}${
-                            x.dosage ? ` (${x.dosage})` : ''
+                        (item) =>
+                          `${item.name}${
+                            item.dosage
+                              ? ` (${item.dosage})`
+                              : ''
                           }`
                       )
-                      .join(', ') || 'None recorded'}
+                      .join(', ') ||
+                      'None recorded'}
                   </pre>
                 </div>
               </section>
@@ -620,24 +1067,31 @@ export default function EmergencyPage() {
                 }}
               >
                 <div className="font-black">
-                  Location handoff · SIMULATED — NOT SENT
+                  Location handoff · SIMULATED — NOT
+                  SENT
                 </div>
 
                 <p className="text-sm mt-2">
-                  No hospital message has been transmitted. Nominatim
-                  identified this emergency location as:{' '}
+                  No hospital message has been
+                  transmitted. Nominatim identified
+                  this emergency location as:{' '}
                   <span className="font-bold">
-                    {placeName || 'Current device location'}
+                    {placeName ||
+                      'Current device location'}
                   </span>
-                  . Nearby hospital search is informational only.
+                  . Nearby hospital search is
+                  informational only.
                 </p>
 
                 <a
                   href="/signup-essentials"
                   className="inline-block mt-4 font-bold"
-                  style={{ color: 'var(--brand)' }}
+                  style={{
+                    color: 'var(--brand)',
+                  }}
                 >
-                  Complete your profile for faster help next time →
+                  Complete your profile for faster
+                  help next time →
                 </a>
               </div>
             )}
@@ -647,7 +1101,9 @@ export default function EmergencyPage() {
                 <div className="flex items-center gap-2 mb-3">
                   <AlertTriangle
                     size={18}
-                    style={{ color: 'var(--warning)' }}
+                    style={{
+                      color: 'var(--warning)',
+                    }}
                   />
 
                   <h2 className="text-xl font-black">
@@ -659,28 +1115,49 @@ export default function EmergencyPage() {
 
                 <div className="grid md:grid-cols-3 gap-4">
                   {(
-                    Object.entries(currentAid) as [string, string[]][]
-                  ).map(([title, items]) => (
-                    <div
-                      key={title}
-                      className="app-surface rounded-2xl p-5"
-                    >
-                      <h3 className="font-black">{title}</h3>
-
-                      <ol className="mt-3 space-y-2 text-sm list-decimal pl-5">
-                        {items.map((x) => (
-                          <li key={x}>{x}</li>
-                        ))}
-                      </ol>
-
+                    Object.entries(
+                      currentAid
+                    ) as [
+                      string,
+                      string[]
+                    ][]
+                  ).map(
+                    ([title, items]) => (
                       <div
-                        className="text-[11px] mt-4 font-semibold"
-                        style={{ color: 'var(--warning)' }}
+                        key={title}
+                        className="app-surface rounded-2xl p-5"
                       >
-                        {t(lang, 'guidance')}
+                        <h3 className="font-black">
+                          {title}
+                        </h3>
+
+                        <ol className="mt-3 space-y-2 text-sm list-decimal pl-5">
+                          {items.map(
+                            (item) => (
+                              <li
+                                key={item}
+                              >
+                                {item}
+                              </li>
+                            )
+                          )}
+                        </ol>
+
+                        <div
+                          className="text-[11px] mt-4 font-semibold"
+                          style={{
+                            color:
+                              'var(--warning)',
+                          }}
+                        >
+                          {t(
+                            lang,
+                            'guidance'
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  )}
                 </div>
               </div>
             )}
@@ -689,11 +1166,14 @@ export default function EmergencyPage() {
 
         <div
           className="mt-5 text-xs flex items-center gap-2"
-          style={{ color: 'var(--muted)' }}
+          style={{
+            color: 'var(--muted)',
+          }}
         >
           <Navigation size={14} />
-          Native dialing/SMS opens the device's own apps. Tholan does
-          not place calls or send SMS automatically.
+          Native dialing/SMS opens the device's own
+          apps. Tholan does not place calls or send SMS
+          automatically.
         </div>
       </div>
     </AppShell>

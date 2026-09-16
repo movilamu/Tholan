@@ -1,9 +1,21 @@
 'use client';
 
-import { FormEvent, Suspense, useEffect, useState } from 'react';
-import { HeartPulse, LockKeyhole, Mail } from 'lucide-react';
+import {
+  FormEvent,
+  Suspense,
+  useEffect,
+  useState,
+} from 'react';
+import {
+  HeartPulse,
+  LockKeyhole,
+  Mail,
+} from 'lucide-react';
+import {
+  useRouter,
+  useSearchParams,
+} from 'next/navigation';
 import { createSupabaseBrowser } from '../../lib/supabase-browser';
-import { useRouter, useSearchParams } from 'next/navigation';
 import { useAuth } from '../../lib/auth-context';
 import { toast } from 'sonner';
 import { FloatingSOS } from '../../components/FloatingSOS';
@@ -13,7 +25,8 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const { session, loading } = useAuth();
 
-  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [mode, setMode] =
+    useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -37,63 +50,85 @@ function LoginContent() {
 
     setBusy(true);
 
-    const s = createSupabaseBrowser();
+    try {
+      const s = createSupabaseBrowser();
 
-    const res =
-      mode === 'signin'
-        ? await s.auth.signInWithPassword({
-            email,
-            password,
-          })
-        : await s.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                full_name: email.split('@')[0],
+      const res =
+        mode === 'signin'
+          ? await s.auth.signInWithPassword({
+              email,
+              password,
+            })
+          : await s.auth.signUp({
+              email,
+              password,
+              options: {
+                data: {
+                  full_name:
+                    email.split('@')[0],
+                },
               },
-            },
-          });
+            });
 
-    setBusy(false);
+      if (res.error) {
+        toast.error(res.error.message);
+        return;
+      }
 
-    if (res.error) {
-      toast.error(res.error.message);
-      return;
-    }
+      if (
+        mode === 'signup' &&
+        !res.data.session
+      ) {
+        toast.success(
+          'Check your email to confirm your account.'
+        );
+        return;
+      }
 
-    if (mode === 'signup' && !res.data.session) {
-      toast.success(
-        'Check your email to confirm your account.'
-      );
-    } else {
       router.replace('/signup-essentials');
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Unable to complete authentication.'
+      );
+    } finally {
+      setBusy(false);
     }
   };
 
   const google = async () => {
     setBusy(true);
 
-    const s = createSupabaseBrowser();
+    try {
+      const s = createSupabaseBrowser();
 
-    const callbackUrl = new URL(
-      '/auth/callback',
-      window.location.origin
-    );
+      const redirectTo =
+        `${window.location.origin}/auth/callback?next=/`;
 
-    callbackUrl.searchParams.set('next', '/');
+      const { error } =
+        await s.auth.signInWithOAuth({
+          provider: 'google',
+          options: {
+            redirectTo,
+            queryParams: {
+              access_type: 'offline',
+              prompt: 'select_account',
+            },
+          },
+        });
 
-    const { error } =
-      await s.auth.signInWithOAuth({
-        provider: 'google',
-        options: {
-          redirectTo: callbackUrl.toString(),
-        },
-      });
-
-    if (error) {
+      if (error) {
+        toast.error(error.message);
+        setBusy(false);
+      }
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : 'Unable to continue with Google.'
+      );
       setBusy(false);
-      toast.error(error.message);
     }
   };
 
@@ -108,7 +143,9 @@ function LoginContent() {
         <div className="flex items-center gap-3">
           <div
             className="h-12 w-12 rounded-2xl flex items-center justify-center text-white"
-            style={{ background: 'var(--brand)' }}
+            style={{
+              background: 'var(--brand)',
+            }}
           >
             <HeartPulse />
           </div>
@@ -120,7 +157,9 @@ function LoginContent() {
 
             <div
               className="text-sm"
-              style={{ color: 'var(--muted)' }}
+              style={{
+                color: 'var(--muted)',
+              }}
             >
               Health & emergency response
             </div>
@@ -136,7 +175,9 @@ function LoginContent() {
 
           <p
             className="mt-2"
-            style={{ color: 'var(--muted)' }}
+            style={{
+              color: 'var(--muted)',
+            }}
           >
             Secure access to your personal health records.
           </p>
@@ -204,9 +245,12 @@ function LoginContent() {
           </label>
 
           <button
+            type="submit"
             disabled={busy}
             className="w-full rounded-xl py-3.5 font-black text-white disabled:opacity-60"
-            style={{ background: 'var(--brand)' }}
+            style={{
+              background: 'var(--brand)',
+            }}
           >
             {busy
               ? 'Working…'
@@ -219,32 +263,42 @@ function LoginContent() {
         <div className="flex items-center gap-3 my-6">
           <div
             className="h-px flex-1"
-            style={{ background: 'var(--border)' }}
+            style={{
+              background: 'var(--border)',
+            }}
           />
 
           <span
             className="text-xs font-bold"
-            style={{ color: 'var(--muted)' }}
+            style={{
+              color: 'var(--muted)',
+            }}
           >
             OR
           </span>
 
           <div
             className="h-px flex-1"
-            style={{ background: 'var(--border)' }}
+            style={{
+              background: 'var(--border)',
+            }}
           />
         </div>
 
         <button
+          type="button"
           disabled={busy}
           onClick={google}
           className="w-full rounded-xl py-3.5 font-bold border disabled:opacity-60"
-          style={{ borderColor: 'var(--border)' }}
+          style={{
+            borderColor: 'var(--border)',
+          }}
         >
           Continue with Google
         </button>
 
         <button
+          type="button"
           onClick={() =>
             setMode(
               mode === 'signin'
@@ -253,7 +307,9 @@ function LoginContent() {
             )
           }
           className="w-full mt-4 text-sm font-bold"
-          style={{ color: 'var(--brand)' }}
+          style={{
+            color: 'var(--brand)',
+          }}
         >
           {mode === 'signin'
             ? 'Need an account? Create one'
@@ -268,7 +324,9 @@ function LoginFallback() {
   return (
     <div
       className="min-h-screen flex items-center justify-center p-5"
-      style={{ background: 'var(--bg)' }}
+      style={{
+        background: 'var(--bg)',
+      }}
     >
       <div className="app-surface rounded-3xl p-8 shadow-xl">
         <div className="font-black">

@@ -77,9 +77,8 @@ export default function RecordsPage() {
           const ctx = canvas.getContext('2d');
 
           if (!ctx) {
-            return reject(
-              new Error('Could not prepare image.')
-            );
+            reject(new Error('Could not prepare image.'));
+            return;
           }
 
           ctx.drawImage(
@@ -104,14 +103,15 @@ export default function RecordsPage() {
     if (file.type.startsWith('image/')) {
       const raw = await new Promise<string>(
         (resolve, reject) => {
-          const r = new FileReader();
+          const reader = new FileReader();
 
-          r.onload = () => resolve(String(r.result));
+          reader.onload = () =>
+            resolve(String(reader.result));
 
-          r.onerror = () =>
+          reader.onerror = () =>
             reject(new Error('Could not read image.'));
 
-          r.readAsDataURL(file);
+          reader.readAsDataURL(file);
         }
       );
 
@@ -123,8 +123,6 @@ export default function RecordsPage() {
         await file.arrayBuffer()
       );
 
-      // Corrected: disableWorker is not part of the installed
-      // pdfjs-dist DocumentInitParameters type.
       const pdf = await pdfjsLib.getDocument(bytes).promise;
 
       const page = await pdf.getPage(1);
@@ -135,8 +133,8 @@ export default function RecordsPage() {
 
       const canvas = document.createElement('canvas');
 
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
+      canvas.width = Math.ceil(viewport.width);
+      canvas.height = Math.ceil(viewport.height);
 
       const context = canvas.getContext('2d');
 
@@ -147,6 +145,7 @@ export default function RecordsPage() {
       }
 
       await page.render({
+        canvas,
         canvasContext: context,
         viewport,
       }).promise;
@@ -170,45 +169,54 @@ export default function RecordsPage() {
     try {
       const s = createSupabaseBrowser();
 
-      const path = `${user.id}/${crypto.randomUUID()}-${file.name.replace(
+      const safeName = file.name.replace(
         /[^a-zA-Z0-9._-]/g,
         '_'
-      )}`;
+      );
 
-      const { error: up } = await s.storage
+      const path = `${user.id}/${crypto.randomUUID()}-${safeName}`;
+
+      const { error: uploadError } = await s.storage
         .from('medical-records')
         .upload(path, file, {
           contentType: file.type || undefined,
           upsert: false,
         });
 
-      if (up) throw up;
+      if (uploadError) {
+        throw uploadError;
+      }
 
       const image = await fileToImage(file);
 
-      const r = await fetch('/api/groq-extract', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ image }),
-      });
+      const response = await fetch(
+        '/api/groq-extract',
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ image }),
+        }
+      );
 
-      const json = await r.json();
+      const json = await response.json();
 
-      if (!r.ok) {
+      if (!response.ok) {
         throw new Error(
           json.error || 'Extraction failed.'
         );
       }
 
-      setExtracted(
-        Array.isArray(json.medications)
-          ? json.medications
-          : []
-      );
+      const medications = Array.isArray(
+        json.medications
+      )
+        ? json.medications
+        : [];
 
-      if (!json.medications?.length) {
+      setExtracted(medications);
+
+      if (!medications.length) {
         toast.info(
           'No medication was clearly visible in this document. Nothing was suggested.'
         );
@@ -217,10 +225,10 @@ export default function RecordsPage() {
           'Document scanned. Review before approval.'
         );
       }
-    } catch (e) {
+    } catch (error) {
       toast.error(
-        e instanceof Error
-          ? e.message
+        error instanceof Error
+          ? error.message
           : 'Could not process document.'
       );
     } finally {
@@ -241,29 +249,31 @@ export default function RecordsPage() {
         user_id: user.id,
         name: item.name,
         dosage: item.dosage || null,
-        prescribed_for: item.prescribed_for || null,
+        prescribed_for:
+          item.prescribed_for || null,
         added_from: 'record-scan',
       });
 
     if (error) {
       toast.error(error.message);
-    } else {
-      setExtracted((x) =>
-        x.filter((i) => i !== item)
-      );
-
-      await load();
-
-      toast.success(
-        'Medication approved and recorded.'
-      );
+      return;
     }
+
+    setExtracted((items) =>
+      items.filter((existing) => existing !== item)
+    );
+
+    await load();
+
+    toast.success(
+      'Medication approved and recorded.'
+    );
   };
 
-  const saveSide = async (m: Medication) => {
-    const v = side[m.id];
+  const saveSide = async (medication: Medication) => {
+    const value = side[medication.id];
 
-    if (!v) return;
+    if (!value) return;
 
     const s = createSupabaseBrowser();
 
@@ -271,18 +281,19 @@ export default function RecordsPage() {
       .from('medications')
       .update({
         side_effects_reported:
-          v.reported || null,
+          value.reported || null,
         side_effect_action:
-          v.action || null,
+          value.action || null,
       })
-      .eq('id', m.id);
+      .eq('id', medication.id);
 
     if (error) {
       toast.error(error.message);
-    } else {
-      toast.success('Follow-up saved.');
-      await load();
+      return;
     }
+
+    toast.success('Follow-up saved.');
+    await load();
   };
 
   return (
@@ -332,10 +343,12 @@ export default function RecordsPage() {
             className="hidden"
             type="file"
             accept="image/*,.pdf,application/pdf"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
+            onChange={(event) => {
+              const file = event.target.files?.[0];
 
-              if (f) upload(f);
+              if (file) {
+                upload(file);
+              }
             }}
           />
 
@@ -434,9 +447,9 @@ export default function RecordsPage() {
             </div>
           ) : (
             <div className="mt-4 space-y-4">
-              {extracted.map((m, i) => (
+              {extracted.map((medication, index) => (
                 <div
-                  key={i}
+                  key={index}
                   className="rounded-2xl border p-4"
                   style={{
                     borderColor: 'var(--warning)',
@@ -445,38 +458,40 @@ export default function RecordsPage() {
                   <div className="grid md:grid-cols-3 gap-4">
                     <FieldView
                       label="Medication name"
-                      value={m.name}
+                      value={medication.name}
                     />
 
                     <FieldView
                       label="Dosage visible"
                       value={
-                        m.dosage || 'Not visible'
+                        medication.dosage ||
+                        'Not visible'
                       }
                     />
 
                     <FieldView
                       label="Associated condition"
                       value={
-                        m.prescribed_for ||
+                        medication.prescribed_for ||
                         'Not visible'
                       }
                     />
                   </div>
 
-                  {m.source_excerpt && (
+                  {medication.source_excerpt && (
                     <div
                       className="text-xs mt-3"
                       style={{
                         color: 'var(--muted)',
                       }}
                     >
-                      Document text: {m.source_excerpt}
+                      Document text:{' '}
+                      {medication.source_excerpt}
                     </div>
                   )}
 
                   <button
-                    onClick={() => approve(m)}
+                    onClick={() => approve(medication)}
                     className="mt-4 inline-flex gap-2 items-center rounded-xl px-4 py-2.5 text-white font-black"
                     style={{
                       background: 'var(--success)',
@@ -525,15 +540,15 @@ export default function RecordsPage() {
               </p>
             </div>
           ) : (
-            meds.map((m) => (
+            meds.map((medication) => (
               <div
-                key={m.id}
+                key={medication.id}
                 className="app-surface rounded-2xl p-5"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <div className="font-black text-lg">
-                      {m.name}
+                      {medication.name}
                     </div>
 
                     <div
@@ -542,14 +557,17 @@ export default function RecordsPage() {
                         color: 'var(--muted)',
                       }}
                     >
-                      {m.dosage ||
+                      {medication.dosage ||
                         'Dosage not recorded'}{' '}
-                      · source: {m.added_from || 'record'}
+                      · source:{' '}
+                      {medication.added_from ||
+                        'record'}
                     </div>
 
-                    {m.prescribed_for && (
+                    {medication.prescribed_for && (
                       <div className="text-sm mt-1">
-                        For: {m.prescribed_for}
+                        For:{' '}
+                        {medication.prescribed_for}
                       </div>
                     )}
                   </div>
@@ -574,18 +592,20 @@ export default function RecordsPage() {
 
                   <textarea
                     value={
-                      side[m.id]?.reported ??
-                      m.side_effects_reported ??
+                      side[medication.id]?.reported ??
+                      medication.side_effects_reported ??
                       ''
                     }
-                    onChange={(e) =>
-                      setSide((v) => ({
-                        ...v,
-                        [m.id]: {
-                          reported: e.target.value,
+                    onChange={(event) =>
+                      setSide((current) => ({
+                        ...current,
+                        [medication.id]: {
+                          reported:
+                            event.target.value,
                           action:
-                            v[m.id]?.action ??
-                            m.side_effect_action ??
+                            current[medication.id]
+                              ?.action ??
+                            medication.side_effect_action ??
                             '',
                         },
                       }))
@@ -602,19 +622,21 @@ export default function RecordsPage() {
 
                   <textarea
                     value={
-                      side[m.id]?.action ??
-                      m.side_effect_action ??
+                      side[medication.id]?.action ??
+                      medication.side_effect_action ??
                       ''
                     }
-                    onChange={(e) =>
-                      setSide((v) => ({
-                        ...v,
-                        [m.id]: {
+                    onChange={(event) =>
+                      setSide((current) => ({
+                        ...current,
+                        [medication.id]: {
                           reported:
-                            v[m.id]?.reported ??
-                            m.side_effects_reported ??
+                            current[medication.id]
+                              ?.reported ??
+                            medication.side_effects_reported ??
                             '',
-                          action: e.target.value,
+                          action:
+                            event.target.value,
                         },
                       }))
                     }
@@ -629,7 +651,9 @@ export default function RecordsPage() {
                   />
 
                   <button
-                    onClick={() => saveSide(m)}
+                    onClick={() =>
+                      saveSide(medication)
+                    }
                     className="mt-2 rounded-xl px-4 py-2 border font-bold"
                     style={{
                       borderColor: 'var(--border)',

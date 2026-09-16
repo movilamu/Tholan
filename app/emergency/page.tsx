@@ -13,7 +13,8 @@ import { toast } from 'sonner';
 
 const severities = ['Low', 'Moderate', 'High', 'Critical'] as const;
 type Severity = typeof severities[number];
-const aids = {
+type FirstAidGuide = Record<string, string[]>;
+const aid: FirstAidGuide = {
   en: {
     'Dizziness / low BP': ['Sit or lie down somewhere safe and avoid standing suddenly.','If awake and able to swallow, consider normal fluids while arranging medical assessment.','Seek urgent care for fainting, chest pain, severe breathlessness, confusion, weakness on one side, or ongoing symptoms.'],
     'Heat stroke': ['Move to a cool place and remove excess clothing.','Cool the person promptly with cool wet cloths/fanning or other available cooling measures.','Heat stroke is an emergency: call for urgent medical help, especially with confusion, collapse, or seizures.'],
